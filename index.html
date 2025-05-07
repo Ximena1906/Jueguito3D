@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>Juego de Feria</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    #info,
+    #score,
+    #timer,
+    #finalScreen {
+      position: absolute;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.5);
+      color: white;
+      padding: 10px;
+      font-family: sans-serif;
+    }
+
+    #info {
+      top: 10px;
+    }
+
+    #score {
+      top: 50px;
+    }
+
+    #timer {
+      top: 90px;
+    }
+
+    #finalScreen {
+      display: none;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.8);
+      text-align: center;
+      padding: 20px;
+      font-size: 1.5em;
+    }
+
+    #finalScreen button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      font-size: 1em;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="info">Click para iniciar. WASD para moverse, mouse para mirar, click para disparar</div>
+  <div id="score">Puntaje: 0</div>
+  <div id="timer">Tiempo: 60</div>
+  <div id="finalScreen">
+    <div id="finalMessage">¡Tiempo!</div>
+    <div id="finalScore">Puntaje: 0</div>
+    <button onclick="location.reload()">Jugar de nuevo</button>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+    let camera, scene, renderer, controls;
+    const spheres = [], targets = [];
+    let score = 0, timer = 60, gameOver = false;
+    const keyState = {};
+    const clock = new THREE.Clock();
+
+    const listener = new THREE.AudioListener();
+    const audioLoader = new THREE.AudioLoader();
+    const soundBuffers = {
+      disparo: null,
+      nice: null,
+      targetFall: null
+    };
+    const backgroundMusic = new THREE.Audio(listener);
+
+    init();
+    animate();
+
+    const timerInterval = setInterval(() => {
+      if (!gameOver) {
+        if (timer > 0) {
+          timer -= 1;
+          document.getElementById('timer').textContent = `Tiempo: ${timer}`;
+        } else {
+          gameOver = true;
+          clearInterval(timerInterval);
+          document.getElementById('timer').textContent = '¡Tiempo!';
+          showFinalScreen();
+        }
+      }
+    }, 1000);
+
+    function showFinalScreen() {
+      document.getElementById('finalMessage').textContent = '¡Juego Terminado!';
+      document.getElementById('finalScore').textContent = `Puntaje: ${score}`;
+      document.getElementById('finalScreen').style.display = 'block';
+    }
+
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87ceeb);
+
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+      camera.position.set(0, 2, 10);
+      camera.add(listener);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      controls = new PointerLockControls(camera, document.body);
+      document.addEventListener('click', () => {
+        if (!gameOver) controls.lock();
+      });
+      scene.add(controls.getObject());
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+      const light = new THREE.DirectionalLight(0xffffff, 1);
+      light.position.set(10, 10, 10);
+      scene.add(light);
+
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(200, 200),
+        new THREE.MeshStandardMaterial({ color: 0x87ceeb })
+      );
+      floor.rotation.x = -Math.PI / 2;
+      scene.add(floor);
+
+      audioLoader.load('Luz de Feria.mp3', buffer => {
+        backgroundMusic.setBuffer(buffer);
+        backgroundMusic.setLoop(true);
+        backgroundMusic.setVolume(0.5);
+        backgroundMusic.play();
+      });
+
+      audioLoader.load('Disparo.mp3', buffer => soundBuffers.disparo = buffer);
+      audioLoader.load('Nice.mp3', buffer => soundBuffers.nice = buffer);
+      audioLoader.load('TargetFall.mp3', buffer => soundBuffers.targetFall = buffer);
+
+      const textureLoader = new THREE.TextureLoader();
+      textureLoader.load('Feria.png', (texture) => {
+        const aspectRatio = window.innerWidth / window.innerHeight;
+        const width = 200;
+        const height = width / aspectRatio;
+
+        const fondoSuperior = new THREE.Mesh(
+          new THREE.PlaneGeometry(width, height),
+          new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide, transparent: true })
+        );
+        fondoSuperior.position.set(0, height / 2 - 30, -50);
+        scene.add(fondoSuperior);
+      });
+
+      const filas = 3;
+      const columnas = 5;
+      const espaciadoX = 4;
+      const espaciadoY = 2;
+      const colores = [0xff0000, 0x00ff00, 0x0000ff];
+
+      for (let i = 0; i < filas; i++) {
+        for (let j = 0; j < columnas; j++) {
+          const color = colores[i % colores.length];
+          const box = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshStandardMaterial({ color: color })
+          );
+
+          box.position.set(-8 + j * espaciadoX, 0.5 + i * espaciadoY, -5);
+
+          box.userData.velocity = new THREE.Vector3(0.05, 0, 0);
+          box.userData.falling = false;
+          box.userData.respawnTime = 0;
+          box.userData.row = i;
+          box.userData.initialX = box.position.x;
+          scene.add(box);
+          targets.push(box);
+        }
+      }
+
+      document.addEventListener('keydown', e => keyState[e.code] = true);
+      document.addEventListener('keyup', e => keyState[e.code] = false);
+      document.addEventListener('click', shoot);
+      window.addEventListener('resize', onWindowResize);
+    }
+
+    function shoot() {
+      if (gameOver) return;
+
+      if (soundBuffers.disparo) {
+        const disparo = new THREE.Audio(listener);
+        disparo.setBuffer(soundBuffers.disparo);
+        disparo.setVolume(0.8);
+        disparo.play();
+      }
+
+      const geometry = new THREE.SphereGeometry(0.2, 16, 16);
+      const material = new THREE.MeshStandardMaterial({ color: 0x00ffff });
+      const sphere = new THREE.Mesh(geometry, material);
+
+      sphere.position.copy(camera.position);
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      sphere.userData.velocity = dir.clone().multiplyScalar(1);
+      scene.add(sphere);
+      spheres.push(sphere);
+    }
+
+    function updateScore() {
+      document.getElementById('score').textContent = `Puntaje: ${score}`;
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      if (gameOver) return;
+
+      const delta = clock.getDelta();
+
+      const speed = 0.1;
+      if (keyState['KeyW']) controls.moveForward(speed);
+      if (keyState['KeyS']) controls.moveForward(-speed);
+      if (keyState['KeyA']) controls.moveRight(-speed);
+      if (keyState['KeyD']) controls.moveRight(speed);
+
+      for (const ball of spheres) {
+        ball.position.add(ball.userData.velocity);
+      }
+
+      for (const target of targets) {
+        if (!target.userData.falling) {
+          target.position.add(target.userData.velocity);
+          if (target.position.x > 10 || target.position.x < -10) {
+            target.userData.velocity.x *= -1;
+          }
+        } else {
+          target.position.y -= 0.05;
+          target.userData.respawnTime -= delta;
+          if (target.position.y < -2 && target.userData.respawnTime <= 0) {
+            target.position.set(
+              target.userData.initialX + (Math.random() * 2 - 1),
+              0.5 + target.userData.row * 2,
+              -5
+            );
+            target.userData.falling = false;
+            target.userData.respawnTime = 0.5 + Math.random();
+          }
+        }
+      }
+
+      for (const ball of spheres) {
+        for (const target of targets) {
+          if (!target.userData.falling && ball.position.distanceTo(target.position) < 0.6) {
+            target.userData.falling = true;
+            target.userData.respawnTime = 0.5 + Math.random();
+            score += 10;
+            updateScore();
+
+            if (soundBuffers.nice) {
+              const nice = new THREE.Audio(listener);
+              nice.setBuffer(soundBuffers.nice);
+              nice.setVolume(1);
+              nice.play();
+            }
+
+            if (soundBuffers.targetFall) {
+              const fall = new THREE.Audio(listener);
+              fall.setBuffer(soundBuffers.targetFall);
+              fall.setVolume(1);
+              fall.play();
+            }
+          }
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+  </script>
+</body>
+
+</html>
