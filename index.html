@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="utf-8" />
-  <title>Juego de Feria</title>
+  <title>Juego de Feria VR</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     body {
@@ -25,6 +25,7 @@
       color: white;
       padding: 10px;
       font-family: sans-serif;
+      z-index: 10;
     }
 
     #info {
@@ -60,7 +61,7 @@
 </head>
 
 <body>
-  <div id="info">Click para iniciar. WASD para moverse, mouse para mirar, click para disparar</div>
+  <div id="info">Coloca el visor VR y presiona el botón para entrar. Mira y presiona el gatillo para disparar.</div>
   <div id="score">Puntaje: 0</div>
   <div id="timer">Tiempo: 60</div>
   <div id="finalScreen">
@@ -80,13 +81,12 @@
 
   <script type="module">
     import * as THREE from 'three';
-    import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+    import { VRButton } from 'three/addons/webxr/VRButton.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-    let camera, scene, renderer, controls;
+    let camera, scene, renderer;
     const spheres = [], targets = [];
     let score = 0, timer = 60, gameOver = false;
-    const keyState = {};
     const clock = new THREE.Clock();
 
     const listener = new THREE.AudioListener();
@@ -99,7 +99,6 @@
     const backgroundMusic = new THREE.Audio(listener);
 
     init();
-    animate();
 
     const timerInterval = setInterval(() => {
       if (!gameOver) {
@@ -126,18 +125,17 @@
       scene.background = new THREE.Color(0x87ceeb);
 
       camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
-      camera.position.set(0, 2, 10);
+      camera.position.set(0, 1.6, 10);
       camera.add(listener);
+      scene.add(camera);
 
       renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
+      document.body.appendChild(VRButton.createButton(renderer));
 
-      controls = new PointerLockControls(camera, document.body);
-      document.addEventListener('click', () => {
-        if (!gameOver) controls.lock();
-      });
-      scene.add(controls.getObject());
+      renderer.xr.getSession()?.addEventListener('select', shoot);
 
       scene.add(new THREE.AmbientLight(0xffffff, 0.5));
       const light = new THREE.DirectionalLight(0xffffff, 1);
@@ -202,10 +200,9 @@
         }
       }
 
-      document.addEventListener('keydown', e => keyState[e.code] = true);
-      document.addEventListener('keyup', e => keyState[e.code] = false);
-      document.addEventListener('click', shoot);
       window.addEventListener('resize', onWindowResize);
+
+      renderer.setAnimationLoop(animate);
     }
 
     function shoot() {
@@ -235,19 +232,17 @@
     }
 
     function animate() {
-      requestAnimationFrame(animate);
       if (gameOver) return;
 
       const delta = clock.getDelta();
 
-      const speed = 0.1;
-      if (keyState['KeyW']) controls.moveForward(speed);
-      if (keyState['KeyS']) controls.moveForward(-speed);
-      if (keyState['KeyA']) controls.moveRight(-speed);
-      if (keyState['KeyD']) controls.moveRight(speed);
-
-      for (const ball of spheres) {
+      for (let i = spheres.length - 1; i >= 0; i--) {
+        const ball = spheres[i];
         ball.position.add(ball.userData.velocity);
+        if (ball.position.length() > 100) {
+          scene.remove(ball);
+          spheres.splice(i, 1);
+        }
       }
 
       for (const target of targets) {
@@ -292,6 +287,8 @@
               fall.setVolume(1);
               fall.play();
             }
+
+            break;
           }
         }
       }
